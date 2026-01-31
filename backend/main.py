@@ -18,18 +18,26 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-# 配置
-MODEL_NAME = os.getenv("QWEN_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-Base")
+# 配置 - 使用 CustomVoice 模型，内置9种预设声音，无需参考音频
+MODEL_NAME = os.getenv("QWEN_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice")
 DEVICE = os.getenv("QWEN_TTS_DEVICE", "cpu")
 OUTPUT_DIR = Path(__file__).parent.parent / "audio_output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
-REF_AUDIO_DIR = Path(__file__).parent.parent / "ref_audio"
-REF_AUDIO_DIR.mkdir(exist_ok=True)
 
-# 默认参考音频（用于声音克隆）
-DEFAULT_REF_AUDIO = "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-TTS-Repo/clone.wav"
-DEFAULT_REF_TEXT = "Okay. Yeah. I resent you. I love you. I respect you. But you know what? You blew it! And thanks to you."
+# 预设声音列表
+AVAILABLE_SPEAKERS = {
+    "Vivian": "明亮年轻女声 (中文)",
+    "Serena": "温暖柔和女声 (中文)",
+    "Uncle_Fu": "成熟男声 (中文)",
+    "Dylan": "北京男声 (中文/北京话)",
+    "Eric": "成都男声 (中文/四川话)",
+    "Ryan": "活力男声 (英文)",
+    "Aiden": "美式男声 (英文)",
+    "Ono_Anna": "活泼女声 (日语)",
+    "Sohee": "温暖女声 (韩语)",
+}
+DEFAULT_SPEAKER = "Vivian"
 
 # 全局模型实例
 tts_model = None
@@ -118,6 +126,7 @@ if FRONTEND_DIR.exists():
 class TTSRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=5000, description="要转换的文本")
     language: str = Field(default="Chinese", description="语言")
+    speaker: str = Field(default="Vivian", description="说话人")
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="语速")
 
 
@@ -157,6 +166,12 @@ async def get_languages():
     return {"languages": SUPPORTED_LANGUAGES}
 
 
+@app.get("/api/speakers")
+async def get_speakers():
+    """获取可用的说话人列表"""
+    return {"speakers": AVAILABLE_SPEAKERS}
+
+
 @app.get("/api/status")
 async def get_status():
     """获取服务状态"""
@@ -181,6 +196,9 @@ async def text_to_speech(request: TTSRequest):
             detail=f"不支持的语言: {request.language}，支持的语言: {SUPPORTED_LANGUAGES}"
         )
 
+    # 验证说话人
+    speaker = request.speaker if request.speaker in AVAILABLE_SPEAKERS else DEFAULT_SPEAKER
+
     try:
         # 生成唯一文件名
         audio_id = str(uuid.uuid4())[:8]
@@ -190,11 +208,10 @@ async def text_to_speech(request: TTSRequest):
         loop = asyncio.get_event_loop()
         wavs, sr = await loop.run_in_executor(
             None,
-            lambda: tts_model.generate_voice_clone(
+            lambda: tts_model.generate_custom_voice(
                 text=request.text,
                 language=request.language,
-                ref_audio=DEFAULT_REF_AUDIO,
-                ref_text=DEFAULT_REF_TEXT,
+                speaker=speaker,
             )
         )
 

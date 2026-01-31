@@ -35,6 +35,16 @@
         </select>
       </div>
 
+      <!-- 说话人选择 -->
+      <div class="options-section">
+        <label for="speaker-select">选择声音</label>
+        <select id="speaker-select" v-model="speaker" :disabled="loading">
+          <option v-for="(desc, name) in speakers" :key="name" :value="name">
+            {{ name }} - {{ desc }}
+          </option>
+        </select>
+      </div>
+
       <!-- 生成按钮 -->
       <button
         class="generate-btn"
@@ -90,7 +100,9 @@ export default {
     return {
       text: '',
       language: 'Chinese',
+      speaker: 'Vivian',
       languages: [],
+      speakers: {},
       loading: false,
       audioUrl: null,
       audioId: null,
@@ -130,6 +142,7 @@ export default {
   async mounted() {
     await this.fetchStatus()
     await this.fetchLanguages()
+    await this.fetchSpeakers()
     // 定时检查状态
     setInterval(this.fetchStatus, 10000)
   },
@@ -150,6 +163,14 @@ export default {
         this.languages = ['Chinese', 'English']
       }
     },
+    async fetchSpeakers() {
+      try {
+        const res = await axios.get('/api/speakers')
+        this.speakers = res.data.speakers
+      } catch (e) {
+        this.speakers = { 'Vivian': '默认声音' }
+      }
+    },
     async generateSpeech() {
       if (!this.canGenerate) return
 
@@ -161,6 +182,7 @@ export default {
         const res = await axios.post('/api/tts', {
           text: this.text,
           language: this.language,
+          speaker: this.speaker,
         })
 
         if (res.data.success) {
