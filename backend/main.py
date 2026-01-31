@@ -23,6 +23,7 @@ MODEL_NAME = os.getenv("QWEN_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-Base")
 DEVICE = os.getenv("QWEN_TTS_DEVICE", "cpu")
 OUTPUT_DIR = Path(__file__).parent.parent / "audio_output"
 OUTPUT_DIR.mkdir(exist_ok=True)
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
 
 # 全局模型实例
 tts_model = None
@@ -99,6 +100,13 @@ app.add_middleware(
 # 静态文件服务
 app.mount("/audio", StaticFiles(directory=str(OUTPUT_DIR)), name="audio")
 
+# 前端静态文件服务
+if FRONTEND_DIR.exists():
+    # 挂载 assets 目录
+    assets_dir = FRONTEND_DIR / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
 
 # 请求模型
 class TTSRequest(BaseModel):
@@ -125,7 +133,11 @@ SUPPORTED_LANGUAGES = [
 
 @app.get("/")
 async def root():
-    """健康检查"""
+    """返回前端页面或健康检查"""
+    if FRONTEND_DIR.exists():
+        index_file = FRONTEND_DIR / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
     return {
         "status": "running",
         "model": MODEL_NAME,
