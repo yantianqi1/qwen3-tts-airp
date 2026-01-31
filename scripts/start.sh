@@ -21,8 +21,8 @@ echo "==========================================${NC}"
 echo ""
 
 # 配置
-BACKEND_PORT=${BACKEND_PORT:-8000}
-FRONTEND_PORT=${FRONTEND_PORT:-3000}
+BACKEND_PORT=${BACKEND_PORT:-8019}
+FRONTEND_PORT=${FRONTEND_PORT:-3019}
 MODEL=${QWEN_TTS_MODEL:-"Qwen/Qwen3-TTS-12Hz-0.6B-Base"}
 DEVICE=${QWEN_TTS_DEVICE:-"cpu"}
 
