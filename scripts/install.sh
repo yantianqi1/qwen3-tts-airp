@@ -36,19 +36,18 @@ sudo apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
-    nodejs \
-    npm \
     libsndfile1 \
     ffmpeg \
     git \
     curl
 
-# 检查 Node.js 版本
-NODE_VERSION=$(node -v 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1)
-if [ "$NODE_VERSION" -lt 16 ]; then
-    echo -e "${YELLOW}Node.js 版本过低，正在安装新版本...${NC}"
+# 检查 Node.js
+if ! command -v node &> /dev/null || [ "$(node -v | cut -d'v' -f2 | cut -d'.' -f1)" -lt 16 ]; then
+    echo -e "${YELLOW}安装 Node.js 20...${NC}"
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
     sudo apt-get install -y nodejs
+else
+    echo "Node.js 已安装: $(node -v)"
 fi
 
 echo ""
