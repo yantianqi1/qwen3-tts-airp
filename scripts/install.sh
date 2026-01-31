@@ -65,21 +65,32 @@ source venv/bin/activate
 echo ""
 
 # 3. 安装 Python 依赖
-echo -e "${GREEN}[3/5] 安装 Python 依赖...${NC}"
+echo -e "${GREEN}[3/6] 安装 PyTorch CPU 版本...${NC}"
 pip install --upgrade pip
-pip install -r backend/requirements.txt
+
+# 安装 PyTorch CPU 版本（比 CUDA 版本小很多，节省约 4GB 空间）
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 echo ""
 
-# 4. 安装前端依赖
-echo -e "${GREEN}[4/5] 安装前端依赖...${NC}"
+# 4. 安装其他 Python 依赖
+echo -e "${GREEN}[4/6] 安装其他 Python 依赖...${NC}"
+pip install -r backend/requirements.txt
+
+# 清理 pip 缓存以节省空间
+pip cache purge 2>/dev/null || true
+
+echo ""
+
+# 5. 安装前端依赖
+echo -e "${GREEN}[5/6] 安装前端依赖...${NC}"
 cd "$PROJECT_DIR/frontend"
 npm install
 
 echo ""
 
-# 5. 构建前端
-echo -e "${GREEN}[5/5] 构建前端...${NC}"
+# 6. 构建前端
+echo -e "${GREEN}[6/6] 构建前端...${NC}"
 npm run build
 
 echo ""
