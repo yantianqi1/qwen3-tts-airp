@@ -24,6 +24,12 @@ DEVICE = os.getenv("QWEN_TTS_DEVICE", "cpu")
 OUTPUT_DIR = Path(__file__).parent.parent / "audio_output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
+REF_AUDIO_DIR = Path(__file__).parent.parent / "ref_audio"
+REF_AUDIO_DIR.mkdir(exist_ok=True)
+
+# 默认参考音频（用于声音克隆）
+DEFAULT_REF_AUDIO = "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-TTS-Repo/clone.wav"
+DEFAULT_REF_TEXT = "Okay. Yeah. I resent you. I love you. I respect you. But you know what? You blew it! And thanks to you."
 
 # 全局模型实例
 tts_model = None
@@ -184,9 +190,11 @@ async def text_to_speech(request: TTSRequest):
         loop = asyncio.get_event_loop()
         wavs, sr = await loop.run_in_executor(
             None,
-            lambda: tts_model.synthesize(
+            lambda: tts_model.generate_voice_clone(
                 text=request.text,
                 language=request.language,
+                ref_audio=DEFAULT_REF_AUDIO,
+                ref_text=DEFAULT_REF_TEXT,
             )
         )
 
