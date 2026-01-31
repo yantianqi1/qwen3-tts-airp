@@ -1,6 +1,6 @@
 """
 Qwen3-TTS Server - FastAPI 后端服务
-支持 CPU 运行，适用于 Ubuntu 服务器部署
+基于 0.6B-Base 模型，支持声音克隆
 """
 
 import os
@@ -12,32 +12,20 @@ from contextlib import asynccontextmanager
 
 import torch
 import soundfile as sf
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-# 配置 - 使用 CustomVoice 模型，内置9种预设声音，无需参考音频
-MODEL_NAME = os.getenv("QWEN_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice")
+# 配置 - 使用 Base 模型，支持声音克隆
+MODEL_NAME = os.getenv("QWEN_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-Base")
 DEVICE = os.getenv("QWEN_TTS_DEVICE", "cpu")
 OUTPUT_DIR = Path(__file__).parent.parent / "audio_output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
-
-# 预设声音列表
-AVAILABLE_SPEAKERS = {
-    "Vivian": "明亮年轻女声 (中文)",
-    "Serena": "温暖柔和女声 (中文)",
-    "Uncle_Fu": "成熟男声 (中文)",
-    "Dylan": "北京男声 (中文/北京话)",
-    "Eric": "成都男声 (中文/四川话)",
-    "Ryan": "活力男声 (英文)",
-    "Aiden": "美式男声 (英文)",
-    "Ono_Anna": "活泼女声 (日语)",
-    "Sohee": "温暖女声 (韩语)",
-}
-DEFAULT_SPEAKER = "Vivian"
+REF_AUDIO_DIR = Path(__file__).parent.parent / "ref_audio"
+REF_AUDIO_DIR.mkdir(exist_ok=True)
 
 # 全局模型实例
 tts_model = None
@@ -97,7 +85,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Qwen3-TTS Server",
-    description="基于 Qwen3-TTS 的文本转语音服务",
+    description="基于 Qwen3-TTS 的文本转语音服务，支持声音克隆",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -113,29 +101,29 @@ app.add_middleware(
 
 # 静态文件服务
 app.mount("/audio", StaticFiles(directory=str(OUTPUT_DIR)), name="audio")
+app.mount("/ref_audio", StaticFiles(directory=str(REF_AUDIO_DIR)), name="ref_audio")
 
 # 前端静态文件服务
 if FRONTEND_DIR.exists():
-    # 挂载 assets 目录
     assets_dir = FRONTEND_DIR / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
 
-# 请求模型
-class TTSRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=5000, description="要转换的文本")
-    language: str = Field(default="Chinese", description="语言")
-    speaker: str = Field(default="Vivian", description="说话人")
-    speed: float = Field(default=1.0, ge=0.5, le=2.0, description="语速")
-
-
+# 响应模型
 class TTSResponse(BaseModel):
     success: bool
     message: str
     audio_url: Optional[str] = None
     audio_id: Optional[str] = None
     duration: Optional[float] = None
+
+
+class RefAudioResponse(BaseModel):
+    success: bool
+    message: str
+    ref_id: Optional[str] = None
+    filename: Optional[str] = None
 
 
 # 支持的语言列表
@@ -166,12 +154,6 @@ async def get_languages():
     return {"languages": SUPPORTED_LANGUAGES}
 
 
-@app.get("/api/speakers")
-async def get_speakers():
-    """获取可用的说话人列表"""
-    return {"speakers": AVAILABLE_SPEAKERS}
-
-
 @app.get("/api/status")
 async def get_status():
     """获取服务状态"""
@@ -183,21 +165,104 @@ async def get_status():
     }
 
 
+@app.get("/api/ref_audios")
+async def get_ref_audios():
+    """获取已上传的参考音频列表"""
+    audios = []
+    for f in REF_AUDIO_DIR.glob("*.wav"):
+        # 尝试读取对应的文本文件
+        txt_file = f.with_suffix(".txt")
+        ref_text = ""
+        if txt_file.exists():
+            ref_text = txt_file.read_text(encoding="utf-8").strip()
+        audios.append({
+            "id": f.stem,
+            "filename": f.name,
+            "ref_text": ref_text,
+        })
+    return {"audios": audios}
+
+
+@app.post("/api/upload_ref_audio", response_model=RefAudioResponse)
+async def upload_ref_audio(
+    file: UploadFile = File(...),
+    ref_text: str = Form(...),
+):
+    """上传参考音频"""
+    if not file.filename.endswith((".wav", ".mp3", ".flac", ".m4a")):
+        raise HTTPException(status_code=400, detail="仅支持 wav/mp3/flac/m4a 格式")
+
+    try:
+        # 生成唯一 ID
+        ref_id = str(uuid.uuid4())[:8]
+
+        # 保存音频文件
+        audio_path = REF_AUDIO_DIR / f"{ref_id}.wav"
+        content = await file.read()
+
+        # 如果不是 wav 格式，需要转换（简单起见先直接保存）
+        with open(audio_path, "wb") as f:
+            f.write(content)
+
+        # 保存参考文本
+        txt_path = REF_AUDIO_DIR / f"{ref_id}.txt"
+        txt_path.write_text(ref_text, encoding="utf-8")
+
+        return RefAudioResponse(
+            success=True,
+            message="参考音频上传成功",
+            ref_id=ref_id,
+            filename=file.filename,
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
+
+
+@app.delete("/api/ref_audio/{ref_id}")
+async def delete_ref_audio(ref_id: str):
+    """删除参考音频"""
+    audio_path = REF_AUDIO_DIR / f"{ref_id}.wav"
+    txt_path = REF_AUDIO_DIR / f"{ref_id}.txt"
+
+    if audio_path.exists():
+        audio_path.unlink()
+    if txt_path.exists():
+        txt_path.unlink()
+
+    return {"success": True, "message": "参考音频已删除"}
+
+
 @app.post("/api/tts", response_model=TTSResponse)
-async def text_to_speech(request: TTSRequest):
-    """文本转语音 API"""
+async def text_to_speech(
+    text: str = Form(...),
+    language: str = Form(default="Chinese"),
+    ref_audio_id: str = Form(...),
+):
+    """文本转语音 API - 使用声音克隆"""
 
     if tts_model is None:
         raise HTTPException(status_code=503, detail="模型尚未加载完成")
 
-    if request.language not in SUPPORTED_LANGUAGES:
+    if language not in SUPPORTED_LANGUAGES:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的语言: {request.language}，支持的语言: {SUPPORTED_LANGUAGES}"
+            detail=f"不支持的语言: {language}，支持的语言: {SUPPORTED_LANGUAGES}"
         )
 
-    # 验证说话人
-    speaker = request.speaker if request.speaker in AVAILABLE_SPEAKERS else DEFAULT_SPEAKER
+    # 查找参考音频
+    ref_audio_path = REF_AUDIO_DIR / f"{ref_audio_id}.wav"
+    ref_txt_path = REF_AUDIO_DIR / f"{ref_audio_id}.txt"
+
+    if not ref_audio_path.exists():
+        raise HTTPException(status_code=400, detail="参考音频不存在，请先上传参考音频")
+
+    ref_text = ""
+    if ref_txt_path.exists():
+        ref_text = ref_txt_path.read_text(encoding="utf-8").strip()
+
+    if not ref_text:
+        raise HTTPException(status_code=400, detail="参考音频缺少对应文本")
 
     try:
         # 生成唯一文件名
@@ -208,10 +273,11 @@ async def text_to_speech(request: TTSRequest):
         loop = asyncio.get_event_loop()
         wavs, sr = await loop.run_in_executor(
             None,
-            lambda: tts_model.generate_custom_voice(
-                text=request.text,
-                language=request.language,
-                speaker=speaker,
+            lambda: tts_model.generate_voice_clone(
+                text=text,
+                language=language,
+                ref_audio=str(ref_audio_path),
+                ref_text=ref_text,
             )
         )
 
